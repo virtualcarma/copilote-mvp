@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Copilote MVP</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 40px; max-width: 980px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px; margin: 14px 0; }
+    .muted { color: #6b7280; }
+    .badge { display:inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid #e5e7eb; }
+    .row { display:flex; gap: 12px; flex-wrap: wrap; }
+    .kpi { min-width: 180px; }
+    table { width:100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align:left; padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+    input[type=file] { padding: 10px; border: 1px solid #e5e7eb; border-radius: 12px; width: 100%; }
+    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #e5e7eb; background: white; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Copilote MVP</h1>
+  <div class="muted">Importe un CSV réel avec colonnes: <b>date</b>, <b>amount</b>, <b>customer_id</b></div>
+
+  <div class="card">
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".csv" required />
+      <div style="margin-top:10px;">
+        <button type="submit">Analyser</button>
+      </div>
+    </form>
+  </div>
+
+  {% if error %}
+    <div class="card">
+      <span class="badge">ERREUR</span>
+      <div style="margin-top:10px;">{{ error }}</div>
+    </div>
+  {% endif %}
+
+  {% if filename %}
+    <div class="card">
+      <div class="muted">Fichier: <b>{{ filename }}</b></div>
+    </div>
+  {% endif %}
+
+  {% if alerts %}
+    {% for a in alerts %}
+      <div class="card">
+        <span class="badge">{{ a.level }}</span>
+        <h2 style="margin:10px 0 6px 0;">{{ a.title }}</h2>
+        <div class="muted">{{ a.detail }}</div>
+        <div style="margin-top:10px;"><b>Action:</b> {{ a.action }}</div>
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if today %}
+    <div class="card">
+      <h2 style="margin:0 0 10px 0;">Résumé du dernier jour</h2>
+      <div class="row">
+        <div class="kpi"><div class="muted">Revenu</div><div><b>{{ "%.2f"|format(today.revenue) }}</b></div></div>
+        <div class="kpi"><div class="muted">Commandes</div><div><b>{{ today.orders }}</b></div></div>
+        <div class="kpi"><div class="muted">Clients</div><div><b>{{ today.customers }}</b></div></div>
+        <div class="kpi"><div class="muted">Panier moyen</div><div><b>{{ "%.2f"|format(today.aov) }}</b></div></div>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if table %}
+    <div class="card">
+      <h2 style="margin:0 0 10px 0;">14 derniers jours</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th><th>Revenu</th><th>Commandes</th><th>Clients</th><th>Panier moyen</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in table %}
+          <tr>
+            <td>{{ r.date }}</td>
+            <td>{{ "%.2f"|format(r.revenue) }}</td>
+            <td>{{ r.orders }}</td>
+            <td>{{ r.customers }}</td>
+            <td>{{ "%.2f"|format(r.aov) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</body>
+</html>
