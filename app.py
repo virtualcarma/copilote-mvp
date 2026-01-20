@@ -7,11 +7,10 @@ from io import BytesIO
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-REQUIRED_COLUMNS = {"date", "amount", "customer_id"}
 
 def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     # Nettoyage des noms de colonnes
-    df.columns = [c.strip().lower() for c in df.columns]
+    df.columns = [str(c).strip().lower() for c in df.columns]
 
     # Mapping tolérant des colonnes possibles
     column_map = {
@@ -30,21 +29,26 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     missing = set(column_map.keys()) - set(normalized.keys())
     if missing:
         raise ValueError(
-            f"Colonnes manquantes: {sorted(missing)}. "
-            f"Colonnes acceptées: date/jour, amount/montant, customer/client."
+            "Colonnes non reconnues.\n\n"
+            f"Colonnes trouvées dans ton CSV : {list(df.columns)}\n\n"
+            "👉 Colonnes attendues (au moins une par groupe) :\n"
+            "- date : date, jour, transaction_date\n"
+            "- amount : amount, montant, price, total\n"
+            "- customer : customer_id, client, customer, client_id\n\n"
+            "✅ Astuce: renomme tes colonnes dans Excel pour matcher une des variantes ci-dessus."
         )
 
+    # Renommage vers le schéma standard
     df = df.rename(columns={v: k for k, v in normalized.items()})
+
+    # customer_id propre (même si numérique)
+    df["customer_id"] = df["customer_id"].astype(str).str.strip()
 
     # Dates robustes
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
 
     # Montants robustes (virgule ou point)
-    df["amount"] = (
-        df["amount"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)
-    )
+    df["amount"] = df["amount"].astype(str).str.replace(",", ".", regex=False)
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 
     # Nettoyage final
@@ -57,10 +61,15 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 def compute_kpis_and_alerts(df: pd.DataFrame):
     daily = (
         df.groupby("date")
-          .agg(revenue=("amount", "sum"), orders=("amount", "count"), customers=("customer_id", pd.Series.nunique))
+          .agg(
+              revenue=("amount", "sum"),
+              orders=("amount", "count"),
+              customers=("customer_id", pd.Series.nunique),
+          )
           .reset_index()
           .sort_values("date")
     )
+
     daily["aov"] = (daily["revenue"] / daily["orders"]).round(2)
     daily["rev_ma7"] = daily["revenue"].rolling(7, min_periods=4).mean()
     daily["rev_std7"] = daily["revenue"].rolling(7, min_periods=4).std()
@@ -96,11 +105,14 @@ def compute_kpis_and_alerts(df: pd.DataFrame):
     today = daily.iloc[-1].to_dict() if len(daily) else {}
     daily_tail = daily.tail(14).copy()
     daily_tail["date"] = daily_tail["date"].astype(str)
+
     return daily_tail.to_dict(orient="records"), today, alerts
+
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
 
 @app.post("/upload", response_class=HTMLResponse)
 async def upload(request: Request, file: UploadFile = File(...)):
@@ -108,6 +120,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
     try:
         raw = BytesIO(content)
 
+        # Détection automatique du séparateur (, ou ;)
         try:
             df = pd.read_csv(raw, sep=None, engine="python")
         except Exception:
@@ -116,6 +129,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
         df = normalize_df(df)
         table, today, alerts = compute_kpis_and_alerts(df)
+
         return templates.TemplateResponse("index.html", {
             "request": request,
             "filename": file.filename,
@@ -123,5 +137,6 @@ async def upload(request: Request, file: UploadFile = File(...)):
             "today": today,
             "table": table,
         })
+
     except Exception as e:
         return templates.TemplateResponse("index.html", {"request": request, "error": str(e)})
