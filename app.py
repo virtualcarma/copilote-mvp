@@ -10,15 +10,49 @@ templates = Jinja2Templates(directory="templates")
 REQUIRED_COLUMNS = {"date", "amount", "customer_id"}
 
 def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
+    # Nettoyage des noms de colonnes
     df.columns = [c.strip().lower() for c in df.columns]
-    missing = REQUIRED_COLUMNS - set(df.columns)
+
+    # Mapping tolérant des colonnes possibles
+    column_map = {
+        "date": ["date", "jour", "transaction_date"],
+        "amount": ["amount", "montant", "price", "total"],
+        "customer_id": ["customer_id", "client", "customer", "client_id"],
+    }
+
+    normalized = {}
+    for target, variants in column_map.items():
+        for v in variants:
+            if v in df.columns:
+                normalized[target] = v
+                break
+
+    missing = set(column_map.keys()) - set(normalized.keys())
     if missing:
-        raise ValueError(f"Colonnes manquantes: {sorted(missing)}. Attendu: {sorted(REQUIRED_COLUMNS)}")
+        raise ValueError(
+            f"Colonnes manquantes: {sorted(missing)}. "
+            f"Colonnes acceptées: date/jour, amount/montant, customer/client."
+        )
+
+    df = df.rename(columns={v: k for k, v in normalized.items()})
+
+    # Dates robustes
     df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+
+    # Montants robustes (virgule ou point)
+    df["amount"] = (
+        df["amount"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+    )
     df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+
+    # Nettoyage final
     df = df.dropna(subset=["date", "amount", "customer_id"])
     df = df[df["amount"] != 0]
+
     return df
+
 
 def compute_kpis_and_alerts(df: pd.DataFrame):
     daily = (
@@ -72,7 +106,14 @@ def home(request: Request):
 async def upload(request: Request, file: UploadFile = File(...)):
     content = await file.read()
     try:
-        df = pd.read_csv(BytesIO(content))
+        raw = BytesIO(content)
+
+        try:
+            df = pd.read_csv(raw, sep=None, engine="python")
+        except Exception:
+            raw.seek(0)
+            df = pd.read_csv(raw, sep=";")
+
         df = normalize_df(df)
         table, today, alerts = compute_kpis_and_alerts(df)
         return templates.TemplateResponse("index.html", {
